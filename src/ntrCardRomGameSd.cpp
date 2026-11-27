@@ -15,6 +15,71 @@ static bool sNextWriteBlockQueued = false;
 static bool sNextWriteIsLast = false;
 static u32 sNextWriteSector = 0xFFFFFFFF;
 
+// A read or write that arrives while the SD card is still busy (typically
+// with the read-ahead started after the previous E5) is deferred: E4 starts
+// it once the card is idle and reports "not ready" until it has finished.
+static bool sReadPending = false;
+static u8* sPendingReadDst;
+static u32 sPendingReadSector;
+static bool sWritePending = false;
+static const u8* sPendingWriteSrc;
+static u32 sPendingWriteSector;
+static bool sPendingWriteKeepOpen;
+static u32 sReadHalf = 0;               // buffer half the last read was started into
+
+// These helpers live in main RAM, not scratch Y: scratch Y has little room
+// left below the boot-time stack.
+static void __noinline __time_critical_func(beginOrDeferRead)(u32 half, u32 sector)
+{
+    sReadHalf = half;
+    if (gSdCard.TryBeginReadSectors(&sSdSectorBuf[half * 512], sector, 1))
+    {
+        sReadBusy = true;
+        sReadPending = false;
+        return;
+    }
+    sReadBusy = false;
+    sReadPending = true;
+    sPendingReadDst = &sSdSectorBuf[half * 512];
+    sPendingReadSector = sector;
+}
+
+static void __noinline __time_critical_func(beginOrDeferWrite)(u32 sector, bool keepOpen)
+{
+    const u8* src = &sSdSectorBuf[sBufferIndex * 512];
+    if (!gSdCard.TryBeginWriteSectors(src, sector, 1, keepOpen))
+    {
+        sWritePending = true;
+        sPendingWriteSrc = src;
+        sPendingWriteSector = sector;
+        sPendingWriteKeepOpen = keepOpen;
+    }
+}
+
+// Starts a deferred read or write once the card is idle. Returns true if one
+// was pending (E4 then reports "not ready").
+static bool __noinline __time_critical_func(runPending)(void)
+{
+    if (sWriteBusy && sWritePending)
+    {
+        if (gSdCard.TryBeginWriteSectors(sPendingWriteSrc, sPendingWriteSector, 1, sPendingWriteKeepOpen))
+        {
+            sWritePending = false;
+        }
+        return true;
+    }
+    if (!sWriteBusy && sReadPending)
+    {
+        if (gSdCard.TryBeginReadSectors(sPendingReadDst, sPendingReadSector, 1))
+        {
+            sReadPending = false;
+            sReadBusy = true;
+        }
+        return true;
+    }
+    return false;
+}
+
 extern "C" void __scratch_y("cpu0") ntrc_gameReqSdReadCmd1(ntr_rom_emu_t* romEmu, u32 word, pio_hw_t* pio)
 {
     ntrc_noPayload(pio);
@@ -25,11 +90,7 @@ extern "C" void __scratch_y("cpu0") ntrc_gameReqSdReadCmd1(ntr_rom_emu_t* romEmu
         sSdSectorBuffersSectors[0] = 0xFFFFFFFF;
         sSdSectorBuffersSectors[1] = 0xFFFFFFFF;
         sBufferIndex = 0;
-        if (!gSdCard.TryBeginReadSectors(&sSdSectorBuf[0], sReadSector, 1))
-        {
-            __breakpoint();
-        }
-        sReadBusy = true;
+        beginOrDeferRead(0, sReadSector);
     }
     ntrc_finishGameNoScrambleCmd1(romEmu);
 }
@@ -39,7 +100,11 @@ extern "C" void __scratch_y("cpu0") ntrc_gameGetSdStatCmd0(ntr_rom_emu_t* romEmu
     ntrc_beginWrite(pio, 4);
 
     bool sdReady;
-    if (sWriteBusy)
+    if (runPending())
+    {
+        sdReady = false;
+    }
+    else if (sWriteBusy)
     {
         sdReady = gSdCard.IsReady();
         if (sdReady && !sNextWriteBlockQueued)
@@ -70,10 +135,8 @@ extern "C" void __scratch_y("cpu0") ntrc_gameGetSdStatCmd0(ntr_rom_emu_t* romEmu
 
     if (sWriteBusy && sdReady && sNextWriteBlockQueued)
     {
-        if (!gSdCard.TryBeginWriteSectors(&sSdSectorBuf[sBufferIndex * 512], sNextWriteSector, 1, !sNextWriteIsLast))
-        {
-            __breakpoint();
-        }
+        // sdReady was just true, so the card is idle and this should start.
+        gSdCard.TryBeginWriteSectors(&sSdSectorBuf[sBufferIndex * 512], sNextWriteSector, 1, !sNextWriteIsLast);
 
         sNextWriteBlockQueued = false;
         sNextWriteIsLast = false;
@@ -91,13 +154,9 @@ extern "C" void __scratch_y("cpu0") ntrc_gameGetSdDataCmd0(ntr_rom_emu_t* romEmu
 
     sBufferIndex = 1 - sBufferIndex;
 
-    if (!sReadBusy)
+    if (!sReadBusy && !sReadPending)
     {
-        if (!gSdCard.TryBeginReadSectors(&sSdSectorBuf[sBufferIndex * 512], sReadSector, 1))
-        {
-            __breakpoint();
-        }
-        sReadBusy = true;
+        beginOrDeferRead(sBufferIndex, sReadSector);
     }
 
     ntrc_finishGameNoScrambleCmd0(romEmu);
@@ -131,10 +190,10 @@ static void __scratch_y("cpu0") sdWritePayloadComplete(ntr_rom_emu_t* romEmu)
     bool isLast = (romEmu->cmd0 & WRITE_SD_DATA_IS_LAST_FLAG) != 0;
     if (isFirst)
     {
-        if (!gSdCard.TryBeginWriteSectors(sSdSectorBuf, romEmu->cmd1, 1, !isLast))
-        {
-            __breakpoint();
-        }
+        // Any read-ahead is stale now (F6 invalidated the buffers).
+        sReadBusy = false;
+        sReadPending = false;
+        beginOrDeferWrite(romEmu->cmd1, !isLast);
         sWriteBusy = true;
     }
     else
@@ -159,7 +218,9 @@ extern "C" void __scratch_y("cpu0") ntrc_gameWriteSdDataCmd1(ntr_rom_emu_t* romE
         sNextWriteBlockQueued = false;
         sNextWriteIsLast = false;
         sNextWriteSector = 0xFFFFFFFF;
-        sBufferIndex = 0;
+        sWritePending = false;
+        // Not into the half a still-running read is filling by DMA.
+        sBufferIndex = (!gSdCard.IsReady() && sReadHalf == 0) ? 1 : 0;
     }
     else
     {
