@@ -19,6 +19,8 @@
 #include "pico/bootrom.h"
 #include "hardware/xosc.h"
 #include "powerSaving.h"
+#include "netUsb.h"
+#include "ntrCardRomGameNet.h"
 
 static u32 sProgramOffset;
 FATFS sFatFs;
@@ -36,6 +38,7 @@ static void setRomToDsiRom(void)
 static void resetNtrCard(void)
 {
     ntrc_resetUsb();
+    ntrc_resetNet();
     pwr_disableAfterBootPowerSaving();
     ntrc_setNormalMode();
     gNtrRomEmu.securePhase1 = false;
@@ -359,9 +362,11 @@ int __time_critical_func(main)()
     tryRebootToBootsel();
 
     pwr_initPowerSaving();
+    net_usbInit();
 
     while (1)
     {
+        net_usbTask();
         gSdCard.Update();
         gSdCard.Update();
     #ifdef ENABLE_R4_MODE

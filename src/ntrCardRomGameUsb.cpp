@@ -6,6 +6,7 @@
 #include "usbEventQueue.h"
 #include "powerSaving.h"
 #include "ntrCardRomGameUsb.h"
+#include "net/netUsb.h"
 
 static u8 sUsbDataBuffers[32][1024] alignas(4);
 static bool sUsbActive;
@@ -19,6 +20,8 @@ extern "C" void __scratch_y("cpu0") ntrc_gameReqUsbCommandCmd1(ntr_rom_emu_t* ro
     {
         case USB_SUB_COMMAND_INIT:
         {
+            if (gNetUsbActive)
+                break;
             pwr_disableUsbPowerSaving();
             dcd_init(0, nullptr);
             sUsbActive = true;
@@ -191,6 +194,11 @@ extern "C" void __scratch_y("cpu0") ntrc_gameUsbGetEventCmd1(ntr_rom_emu_t* romE
     ntrc_beginWrite(pio, 4);
     ntrc_writeWord(pio, usb_dequeueEvent());
     ntrc_finishGameNoScrambleCmd1(romEmu);
+}
+
+extern "C" bool ntrc_isUsbActive(void)
+{
+    return sUsbActive;
 }
 
 extern "C" void ntrc_resetUsb(void)

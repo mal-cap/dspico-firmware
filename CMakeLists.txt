@@ -82,6 +82,32 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/roms/default.nds" AND EXISTS "${CMAKE_SOURCE_DIR}
   )
 endif()
 
+# Network mode: card commands EC-EF bridged to a USB CDC-NCM network adapter
+# (docs/network-mode.md). Needs TinyUSB 0.17.0 in pico-sdk/lib/tinyusb.
+set(DSPICO_NET_DIR ${CMAKE_CURRENT_LIST_DIR}/src/net)
+set(TUSB_SRC ${PICO_SDK_PATH}/lib/tinyusb/src)
+option(NET_AUTOSTART "Start network mode at boot, without the DS" OFF)
+set(DSPICO_NET_TUSB_SOURCES
+  ${TUSB_SRC}/tusb.c
+  ${TUSB_SRC}/common/tusb_fifo.c
+  ${TUSB_SRC}/device/usbd.c
+  ${TUSB_SRC}/device/usbd_control.c
+  ${TUSB_SRC}/class/net/ncm_device.c
+)
+target_sources(DSpico PRIVATE
+  ${DSPICO_NET_DIR}/netUsb.c
+  ${DSPICO_NET_DIR}/ntrCardRomGameNet.cpp
+  ${DSPICO_NET_DIR}/usb_descriptors_net.c
+  ${DSPICO_NET_TUSB_SOURCES}
+)
+# SDK TinyUSB first so its own sources resolve to its own headers; the only
+# header they need from elsewhere is tusb_config.h (in DSPICO_NET_DIR).
+target_include_directories(DSpico PRIVATE ${TUSB_SRC} ${CMAKE_CURRENT_LIST_DIR}/src ${DSPICO_NET_DIR})
+set_source_files_properties(${TUSB_SRC}/device/usbd.c PROPERTIES COMPILE_DEFINITIONS "dcd_init=net_dcdInitCompat")
+if(NET_AUTOSTART)
+  target_compile_definitions(DSpico PRIVATE NET_AUTOSTART)
+endif()
+
 pico_generate_pio_header(DSpico ${CMAKE_CURRENT_LIST_DIR}/src/ntrCard.pio)
 pico_generate_pio_header(DSpico ${CMAKE_CURRENT_LIST_DIR}/src/sd/rp2040_sdio.pio)
 

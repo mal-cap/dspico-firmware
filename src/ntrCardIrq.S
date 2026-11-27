@@ -200,10 +200,10 @@ gGameNoScrambleCmd0HandlerTable:
     .word ntrc_gameWriteUsbDataCmd0 //E9
     .word ntrc_gameReadUsbDataCmd0 //EA
     .word ntrc_gameUsbGetEventCmd0 //EB
-    .word ntrc_gameNoScrambleCmd0Dummy //EC
-    .word ntrc_gameNoScrambleCmd0Dummy //ED
-    .word ntrc_gameNoScrambleCmd0Dummy //EE
-    .word ntrc_gameNoScrambleCmd0Dummy //EF
+    .word ntrc_gameNetCtrlCmd0 //EC
+    .word ntrc_gameNetTxCmd0 //ED
+    .word ntrc_gameNetRxCmd0 //EE
+    .word ntrc_gameNetStatusCmd0 //EF
     .word ntrc_gameNoScrambleCmd0Dummy //F0
     .word ntrc_gameNoScrambleCmd0Dummy //F1
     .word ntrc_gameNoScrambleCmd0Dummy //F2
@@ -315,10 +315,10 @@ gGameNoScrambleCmd1HandlerTable:
     .word ntrc_gameWriteUsbDataCmd1 //E9
     .word ntrc_gameReadUsbDataCmd1 //EA
     .word ntrc_gameUsbGetEventCmd1 //EB
-    .word ntrc_gameNoScrambleCmd1Unknown //EC
-    .word ntrc_gameNoScrambleCmd1Unknown //ED
-    .word ntrc_gameNoScrambleCmd1Unknown //EE
-    .word ntrc_gameNoScrambleCmd1Unknown //EF
+    .word ntrc_gameNetCtrlCmd1 //EC
+    .word ntrc_gameNetTxCmd1 //ED
+    .word ntrc_gameNetRxCmd1 //EE
+    .word ntrc_gameNetStatusCmd1 //EF
     .word ntrc_gameNoScrambleCmd1Unknown //F0
     .word ntrc_gameNoScrambleCmd1Unknown //F1
     .word ntrc_gameNoScrambleCmd1Unknown //F2

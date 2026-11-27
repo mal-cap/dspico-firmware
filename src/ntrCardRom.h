@@ -133,6 +133,7 @@ void ntrc_resetR4(void);
 #endif
 
 void ntrc_resetUsb(void);
+bool ntrc_isUsbActive(void);
 
 /// @brief Signals to the cartridge bus \p pio that the current command has no payload.
 /// @param pio The pio instance to use.
